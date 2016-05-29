@@ -1,0 +1,81 @@
+---
+title: "Prediction Assignment"
+author: "Mark Bulkeley"
+date: "May 28, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Wearables (miniture computer devices worn on the human body) have been an exciting segment in the technology industry over the last five years.  Activity trackers, a segment of wearables, have become increasingly popular, yet suffer from significant limitations.  Though activity trackers like Fitbit do a good job tracking the number of steps tacken, they do not accurately track other activities that you might be doing (like lifting or jumping jacks).  To effectively do this, we need machine learning approaches that can identify movements through a variety of available movement data.  This paper shows that by using a variety of easily tracked information, mostly unsupervised learning can still result in a good prediction of movement.  For reproducibility, all code will be displayed in line.
+
+## Data Used and Initial Data Exploration
+
+The data used for this analysis comes from the [Human Activity Recognition project](http://groupware.les.inf.puc-rio.br/har#dataset).  Specifically, we use the Weight Lifting Dataset.
+
+One will note that the data contains many columns that do not contain any or many valid data points.  These columns were omitted.  That said, we used as many of the columns as available to try to make this an exercise in (mostly) unsupervised learning.
+
+```{r initialDataLoad, cache=TRUE}
+library(data.table)
+library(caret)
+## read in data (saved locally)
+input <- data.table(read.csv("D:/Dropbox/Coursera/8 Machine Learning/pml-training.csv",
+                             na.strings = c("NA", "#DIV/0!")))
+## remove the row number; not relevant at all
+input[, X := NULL]
+## find the number of NAs in all columns in a way that doesn't require us to know
+## how many columns will be made available with future data sets
+exclude <- do.call(rbind, lapply(names(input), function(nm) {
+    return(input[, .(name = nm, nas = sum(is.na(input[[nm]]))) ] )   
+}))
+## See what the values are
+table(exclude$nas)
+```
+
+Here we can see that there are 59 columns with no NAs, but a host of other columns with a substaintially more than 0.  These columns are then dropped before we start the training of our model.
+
+```{r dropBadRows, cache=TRUE}
+## Exclude bad columns
+input <- input[, setdiff(names(input), exclude[nas > 0]$name), with = FALSE]
+```
+
+## Model Building
+
+We are going to building a training and test data set for our analysis using built in CARET functionality.  In order to minimize our overhead and make this as unsupervised as possible (and the fact that this is a classification problem), we are going to use a [Random Forest](http://www.r-bloggers.com/a-brief-tour-of-the-trees-and-forests/) model.  While this takes a reasonable amount of time on a fast PC (as shown below), this model building would likely only have to be done once per customer for a wearable manufacturer and therefore might be tolerable.
+
+```{r modelBuild, cache=TRUE}
+## Set a training data set that includes three quarters of each activity
+inTrain = createDataPartition(input$classe, p = 3/4)[[1]]
+training <- input[ inTrain ] 
+testing <- input[ -inTrain ]
+
+## set seed for reproducibility
+set.seed(284)
+
+## Create a Random Forest model; wrapped in system.time for
+## benchmarking purposes
+system.time(model <- train(classe ~ ., data = training, method = "rf"))
+## Apply model to training set
+training[, pred := predict(model, training)]
+## See how it performs
+confusionMatrix(training$pred, training$classe)
+## Apply model to test set
+testing[, pred := predict(model, testing)]
+## See how that performs
+confusionMatrix(testing$pred, testing$classe)
+
+## Load in validation data
+validation <- data.table(read.csv("D:/Dropbox/Coursera/8 Machine Learning/pml-testing.csv",
+                                  na.strings = c("NA", "#DIV/0!")))
+validation[, pred := predict(model, validation)]
+## Show predictions!
+validation[, .(problem_id, pred)]
+```
+
+## Conclusion
+
+The accuracy of our model is strong both on the training and the testing data sets.  This bodes well for our ability to then use this model on actual in-field activity monitoring data.  Thus, using modern Machine Learning algorithms such as Random Forests, we can accurately classify almost all activities for users and greatly benefit users of activity trackers with very little expert user intervention.
